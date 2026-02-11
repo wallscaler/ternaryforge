@@ -102,6 +102,8 @@ def convert_model(
     method: str = "absmax",
     dtype: torch.dtype = torch.float16,
     device: str = "cpu",
+    calibrate: bool = False,
+    calibration_samples: int = 32,
 ) -> ConversionResult:
     """
     Load a HuggingFace model, ternarize its weights, and save.
@@ -112,6 +114,8 @@ def convert_model(
         method: Ternarization method ("absmax" or "naive")
         dtype: Load precision for original model
         device: Device to use for conversion
+        calibrate: Run calibration to optimize per-layer scales
+        calibration_samples: Number of calibration samples to use
     """
     start = time.time()
     os.makedirs(output_dir, exist_ok=True)
@@ -166,6 +170,25 @@ def convert_model(
             skipped_count += param.numel()
             ternary_state_dict[name] = param.half()
 
+    # Calibrate scales if requested
+    calibration_stats = None
+    if calibrate:
+        from ternaryforge.calibrate import get_calibration_data, calibrate_scales
+
+        logger.info("Running calibration to optimize scales...")
+        cal_data = get_calibration_data(
+            tokenizer, n_samples=calibration_samples, seq_len=256,
+        )
+        scales_dict, calibration_stats = calibrate_scales(
+            model=model,
+            ternary_weights=ternary_state_dict,
+            scales=scales_dict,
+            samples=cal_data,
+            n_samples=min(calibration_samples, 32),
+        )
+        logger.info(f"Calibration: {calibration_stats['layers_optimized']} layers, "
+                     f"{len(calibration_stats['improvements'])} adjusted")
+
     # Save
     logger.info(f"Saving ternarized model to {output_dir}")
     torch.save(ternary_state_dict, os.path.join(output_dir, "ternary_weights.pt"))
@@ -197,7 +220,14 @@ def convert_model(
         "sparsity": round(sparsity, 4),
         "elapsed_sec": round(elapsed, 1),
         "architecture": config.architectures[0] if config.architectures else "unknown",
+        "calibrated": calibrate,
     }
+    if calibration_stats:
+        meta["calibration"] = {
+            "layers_optimized": calibration_stats["layers_optimized"],
+            "layers_adjusted": len(calibration_stats["improvements"]),
+            "elapsed_sec": calibration_stats["elapsed_sec"],
+        }
     with open(os.path.join(output_dir, "conversion_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
 

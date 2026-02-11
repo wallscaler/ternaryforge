@@ -30,6 +30,8 @@ def cmd_convert(args):
         model_id=args.model,
         output_dir=args.output,
         method=args.method,
+        calibrate=getattr(args, "calibrate", False),
+        calibration_samples=getattr(args, "calibration_samples", 32),
     )
     print(f"\nConversion complete:")
     print(f"  Ternarized: {result.ternary_params:,} params")
@@ -89,6 +91,8 @@ def cmd_run(args):
         model_id=args.model,
         output_dir=ternary_dir,
         method=args.method,
+        calibrate=getattr(args, "calibrate", False),
+        calibration_samples=getattr(args, "calibration_samples", 32),
     )
     print(f"  Done: {result.ternary_params:,} params ternarized, "
           f"{result.sparsity:.1%} sparsity")
@@ -139,6 +143,10 @@ def main():
     p_convert.add_argument("-m", "--method", default="absmax",
                            choices=["absmax", "naive"],
                            help="Ternarization method")
+    p_convert.add_argument("--calibrate", action="store_true",
+                           help="Run calibration to optimize scales (slower but better quality)")
+    p_convert.add_argument("--calibration-samples", type=int, default=32,
+                           help="Number of calibration samples")
 
     # export
     p_export = subparsers.add_parser("export", help="Export to GGUF")
@@ -161,6 +169,10 @@ def main():
     p_run.add_argument("-o", "--output", default=None, help="Output directory")
     p_run.add_argument("-m", "--method", default="absmax",
                        choices=["absmax", "naive"])
+    p_run.add_argument("--calibrate", action="store_true",
+                       help="Run calibration to optimize scales")
+    p_run.add_argument("--calibration-samples", type=int, default=32,
+                       help="Number of calibration samples")
     p_run.add_argument("--bitnet-cpp", default=None,
                        help="Path to bitnet.cpp repo")
 
